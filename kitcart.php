@@ -77,8 +77,8 @@ function activate_kitcart()
 
 function uninstall_kitcart()
 {
-    if (get_option('kitcart_private_key')) {
-        delete_option('kitcart_private_key');
+    if (get_option('kitcart_secret_key')) {
+        delete_option('kitcart_secret_key');
         delete_option('kitcart_public_key');
     }
 }
@@ -97,12 +97,20 @@ function create_new_order_on_kitcart($order_id)
             $items_data[] = $item->get_data();
         }
 
+        
+
         $body_data = [
             'public_key' => get_option('kitcart_public_key'),
-            'private_key' => get_option('kitcart_private_key'),
+            'secret_key' => get_option('kitcart_secret_key'),
             'order_data' => $order->get_data(),
             'product_data' => $items_data,
         ];
+
+        $myfile = fopen('wooorder.json', "w") or die("Unable to open file!");
+
+
+        fwrite($myfile, json_encode($body_data));
+
 
         $curl = curl_init();
 
@@ -141,18 +149,18 @@ add_action('woocommerce_settings_kitcart', 'display_kitcart_api_form');
 function display_kitcart_api_form()
 {
 
-    if (isset($_POST['kitcart_public_key']) && isset($_POST['kitcart_private_key'])) {
-        if (get_option('kitcart_private_key')) {
+    if (isset($_POST['kitcart_public_key']) && isset($_POST['kitcart_secret_key'])) {
+        if (get_option('kitcart_secret_key')) {
             update_option('kitcart_public_key', $_POST['kitcart_public_key']);
-            update_option('kitcart_private_key', $_POST['kitcart_private_key']);
+            update_option('kitcart_secret_key', $_POST['kitcart_secret_key']);
         } else {
 
             add_option('kitcart_public_key', $_POST['kitcart_public_key']);
-            add_option('kitcart_private_key', $_POST['kitcart_private_key']);
+            add_option('kitcart_secret_key', $_POST['kitcart_secret_key']);
         }
     }
     $public_key = get_option('kitcart_public_key') ? get_option('kitcart_public_key') : "";
-    $private_key = get_option('kitcart_private_key') ? get_option('kitcart_private_key') : '';
+    $secret_key = get_option('kitcart_secret_key') ? get_option('kitcart_secret_key') : '';
 
     // Styling the table a bit
     $form_display = '
@@ -168,10 +176,10 @@ function display_kitcart_api_form()
 
 		<tr valign="top">
 			<th scope="row" class="titledesc">
-				<label for="kitcart_private_key">Private Key<span class="woocommerce-help-tip"></span></label>
+				<label for="kitcart_secret_key">Private Key<span class="woocommerce-help-tip"></span></label>
 			</th>
 			<td class="forminp forminp-text">
-				<input name="kitcart_private_key" id="kitcart_private_key" type="text" style="" value="' . $private_key . '" class="" placeholder="Enter Kitcart API private key"> 							</td>
+				<input name="kitcart_secret_key" id="kitcart_secret_key" type="text" style="" value="' . $secret_key . '" class="" placeholder="Enter Kitcart API private key"> 							</td>
 		</tr>
 	</table>
 
