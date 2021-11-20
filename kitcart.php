@@ -1,4 +1,5 @@
 <?php
+
 /**
  * @package Kitcart
  */
@@ -37,6 +38,8 @@ if (!function_exists('add_action')) {
     exit;
 }
 
+
+
 define('KITCART_VERSION', '0.0.1');
 define('KITCART__MINIMUM_WP_VERSION', '5.0');
 define('KITCART__PLUGIN_DIR', plugin_dir_path(__FILE__));
@@ -44,14 +47,13 @@ define('KITCART_DELETE_LIMIT', 100000);
 define('KITCART_API_URI', 'https://kitcart.net/api/create-order');
 
 // add settings link
-
 add_filter('plugin_action_links_kitcart/kitcart.php', 'kitcart_settings_link');
 function kitcart_settings_link($links)
 {
     // Build and escape the URL.
     $url = esc_url(add_query_arg(
         ['page' =>
-            'wc-settings', 'tab' => 'kitcart'],
+        'wc-settings', 'tab' => 'kitcart'],
         get_admin_url() . 'admin.php'
     ));
     // Create the link.
@@ -64,75 +66,70 @@ function kitcart_settings_link($links)
     return $links;
 }
 
+//check if woocommerce is installed
+add_action('admin_init', 'kitcart_wc_check');
+function kitcart_wc_check()
+{
+
+    if (class_exists('woocommerce')) {
+
+        global $kitcart_wc_active;
+        $kitcart_wc_active = 'yes';
+    } else {
+
+        global $kitcart_wc_active;
+        $kitcart_wc_active = 'no';
+    }
+}
+
+// show admin notice if WooCommerce is not activated
+add_action('admin_notices', 'kitcart_wc_admin_notice');
+function kitcart_wc_admin_notice()
+{
+
+    global $kitcart_wc_active;
+
+    if ($kitcart_wc_active == 'no') {
+    ?>
+
+        <div class="notice notice-error is-dismissible">
+            <p>WooCommerce is not activated, please activate it to use <b>Kitcart Plugin</b></p>
+        </div>
+<?php
+
+    }
+}
+
 //hookings
 register_activation_hook(__FILE__, 'activate_kitcart');
+add_action('activated_plugin', 'kitcart_activated_action');
 register_uninstall_hook(__FILE__, 'uninstall_kitcart');
-add_action('woocommerce_thankyou', 'create_new_order_on_kitcart', 10);
 
 // action functions and datas
 function activate_kitcart()
 {
-	//might perform actions in future updates
+    //value to be change on first update
+   add_option('kitcart_redirect_to_settings', 'yes');
 }
 
+//redirect after activation to settings page
+function kitcart_activated_action( $plugin ) {
+    //if the user has updated secret keys before, the value will be NO
+    if( get_option('kitcart_redirect_to_settings') === 'yes') {
+        if( $plugin == plugin_basename( __FILE__ ) ) {
+            exit( wp_redirect( admin_url( '/admin.php?page=wc-settings&tab=kitcart' ) ) );
+        }
+    }
+    
+}
+
+//Delete all the values when user uninstall plugin 
 function uninstall_kitcart()
 {
     if (get_option('kitcart_secret_key')) {
+        delete_option('kitcart_redirect_to_settings', 'yes');
         delete_option('kitcart_secret_key');
         delete_option('kitcart_public_key');
-    }
-}
-
-// order part
-
-function create_new_order_on_kitcart($order_id)
-{
-
-    if ( class_exists('woocommerce')) {
-        $order = wc_get_order($order_id);
-        $items = $order->get_items();
-        $items_data = [];
-
-        foreach ($items as $item_key => $item) {
-            $items_data[] = $item->get_data();
-        }
-
-        
-
-        $body_data = [
-            'public_key' => get_option('kitcart_public_key'),
-            'secret_key' => get_option('kitcart_secret_key'),
-            'order_data' => $order->get_data(),
-            'product_data' => $items_data,
-        ];
-
-        $myfile = fopen('wooorder.json', "w") or die("Unable to open file!");
-
-
-        fwrite($myfile, json_encode($body_data));
-
-
-        $curl = curl_init();
-
-        curl_setopt_array($curl, array(
-            CURLOPT_URL => KITCART_API_URI,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_ENCODING => '',
-            CURLOPT_MAXREDIRS => 10,
-            CURLOPT_TIMEOUT => 0,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-            CURLOPT_CUSTOMREQUEST => 'POST',
-            CURLOPT_POSTFIELDS => $body_data,
-            CURLOPT_HTTPHEADER => array(
-                'Accept: application/json',
-                'Cookie: XSRF-TOKEN=woocommerce-api-request; kitcart_session=woocommerce',
-            ),
-        ));
-
-        $response = curl_exec($curl);
-        curl_close($curl);
-
     }
 }
 
@@ -141,87 +138,95 @@ add_action('woocommerce_settings_tabs', 'wc_settings_tabs_kitcart_tab');
 function wc_settings_tabs_kitcart_tab()
 {
     $current_tab = (isset($_GET['tab']) && $_GET['tab'] === 'kitcart') ? 'nav-tab-active' : '';
-    echo '<a href="admin.php?page=wc-settings&tab=kitcart" class="nav-tab ' . $current_tab . '">' . __("Kitcart", "woocommerce") . '</a>';
+    echo '<a href="admin.php?page=wc-settings&tab=kitcart" class="nav-tab ' . esc_attr($current_tab) . '">' . __("Kitcart", "woocommerce") . '</a>';
 }
+
 
 // The setting tab content
 add_action('woocommerce_settings_kitcart', 'display_kitcart_api_form');
 function display_kitcart_api_form()
 {
 
-    if (isset($_POST['kitcart_public_key']) && isset($_POST['kitcart_secret_key'])) {
-        if (get_option('kitcart_secret_key')) {
-            update_option('kitcart_public_key', $_POST['kitcart_public_key']);
-            update_option('kitcart_secret_key', $_POST['kitcart_secret_key']);
-        } else {
+    if (
+        isset($_POST['kitcart_public_key']) && isset($_POST['kitcart_secret_key']) &&
+        is_string($_POST['kitcart_public_key']) && is_string($_POST['kitcart_secret_key'])
+    ) {
 
-            add_option('kitcart_public_key', $_POST['kitcart_public_key']);
-            add_option('kitcart_secret_key', $_POST['kitcart_secret_key']);
+        if (get_option('kitcart_secret_key')) {
+            update_option('kitcart_public_key', sanitize_text_field($_POST['kitcart_public_key']));
+            update_option('kitcart_secret_key', sanitize_text_field($_POST['kitcart_secret_key']));
+        } else {
+            update_option('kitcart_redirect_to_settings', 'no');
+            add_option('kitcart_public_key', sanitize_text_field($_POST['kitcart_public_key']));
+            add_option('kitcart_secret_key', sanitize_text_field($_POST['kitcart_secret_key']));
         }
     }
     $public_key = get_option('kitcart_public_key') ? get_option('kitcart_public_key') : "";
     $secret_key = get_option('kitcart_secret_key') ? get_option('kitcart_secret_key') : '';
 
     // Styling the table a bit
-    $form_display = '
-	<h2>Kitcart API Keys</h2>
-	<table class="form-table">
-		<tr valign="top">
-			<th scope="row" class="titledesc">
-				<label for="kitcart_public_key">Public Key <span class="woocommerce-help-tip"></span></label>
-			</th>
-			<td class="forminp forminp-text">
-				<input name="kitcart_public_key" id="kitcart_public_key" type="text" style="" value="' . $public_key . '" class="" placeholder="Enter your Kitcart API public key"> 							</td>
-		</tr>
+?>
+    <h2>Kitcart API Keys</h2>
+    <table class="form-table">
+        <tr valign="top">
+            <th scope="row" class="titledesc">
+                <label for="kitcart_public_key">Public Key <span class="woocommerce-help-tip"></span></label>
+            </th>
+            <td class="forminp forminp-text">
+                <input name="kitcart_public_key" id="kitcart_public_key" type="text" value="<?=esc_attr($public_key)?>" class="" placeholder="Enter your Kitcart API public key">
+            </td>
+        </tr>
 
-		<tr valign="top">
-			<th scope="row" class="titledesc">
-				<label for="kitcart_secret_key">Private Key<span class="woocommerce-help-tip"></span></label>
-			</th>
-			<td class="forminp forminp-text">
-				<input name="kitcart_secret_key" id="kitcart_secret_key" type="text" style="" value="' . $secret_key . '" class="" placeholder="Enter Kitcart API private key"> 							</td>
-		</tr>
-	</table>
+        <tr valign="top">
+            <th scope="row" class="titledesc">
+                <label for="kitcart_secret_key">Private Key<span class="woocommerce-help-tip"></span></label>
+            </th>
+            <td class="forminp forminp-text">
+                <input name="kitcart_secret_key" id="kitcart_secret_key" type="text" value="<?=esc_attr($secret_key)?>" class="" placeholder="Enter Kitcart API private key">
+            </td>
+        </tr>
+    </table>
 
-	';
-
-    // Output the table
-    echo $form_display;
+    <?php
 }
 
-function tld_wc_check()
+// The Final Order Sending part
+add_action('woocommerce_thankyou', 'create_new_order_on_kitcart', 10);
+function create_new_order_on_kitcart($order_id)
 {
 
     if (class_exists('woocommerce')) {
+        $order = wc_get_order($order_id);
+        $items = $order->get_items();
+        $items_data = [];
 
-        global $tld_wc_active;
-        $tld_wc_active = 'yes';
+        foreach ($items as $item_key => $item) {
+            $items_data[] = $item->get_data();
+        }
+        $body = array(
 
-    } else {
+            'public_key' => get_option('kitcart_public_key'),
+            'secret_key' => get_option('kitcart_secret_key'),
+            'order_data' => $order->get_data(),
+            'product_data' => $items_data,
+        );
 
-        global $tld_wc_active;
-        $tld_wc_active = 'no';
+        $req_args = array(
+            'body'        => $body,
+            'timeout'     => '5',
+            'redirection' => '5',
+            'httpversion' => '1.0',
+            'blocking'    => true,
+            'headers'     => array(
+                'accept' => "application/json",
+            ),
+            'cookies'     => array(
+                'XSRF-TOKEN' => 'woocommerce-api-request',
+                'kitcart_session' => 'woocommerce'
+            ),
+        );
 
+        $response = wp_remote_post(KITCART_API_URI, $req_args);
+        $body = wp_remote_retrieve_body($response);
     }
-
 }
-add_action('admin_init', 'tld_wc_check');
-
-// show admin notice if WooCommerce is not activated
-function tld_wc_admin_notice()
-{
-
-    global $tld_wc_active;
-
-    if ($tld_wc_active == 'no') {
-        ?>
-
-		<div class="notice notice-error is-dismissible">
-			<p>WooCommerce is not activated, please activate it to use <b>Kitcart Plugin</b></p>
-		</div>
-		<?php
-
-    }
-
-}
-add_action('admin_notices', 'tld_wc_admin_notice');
