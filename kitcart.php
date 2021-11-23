@@ -173,7 +173,7 @@ function display_kitcart_api_form()
                 <label for="kitcart_public_key">Public Key <span class="woocommerce-help-tip"></span></label>
             </th>
             <td class="forminp forminp-text">
-                <input name="kitcart_public_key" id="kitcart_public_key" type="text" value="<?=esc_attr($public_key)?>" class="" placeholder="Enter your Kitcart API public key">
+                <input name="kitcart_public_key" id="kitcart_public_key" type="text" value="<?php echo esc_attr($public_key); ?>" class="" placeholder="Enter your Kitcart API public key">
             </td>
         </tr>
 
@@ -182,7 +182,7 @@ function display_kitcart_api_form()
                 <label for="kitcart_secret_key">Private Key<span class="woocommerce-help-tip"></span></label>
             </th>
             <td class="forminp forminp-text">
-                <input name="kitcart_secret_key" id="kitcart_secret_key" type="text" value="<?=esc_attr($secret_key)?>" class="" placeholder="Enter Kitcart API private key">
+                <input name="kitcart_secret_key" id="kitcart_secret_key" type="text" value="<?php echo esc_attr($secret_key); ?>" class="" placeholder="Enter Kitcart API private key">
             </td>
         </tr>
     </table>
