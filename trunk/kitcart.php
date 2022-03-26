@@ -139,8 +139,72 @@ function kitcart_plugin_action($action)
     $body = json_decode($body);
     if ($body->status == 'success') {
         return true;
-    } else { 
+    } else {
         return false;
+    }
+}
+
+function submit_all_successful_orders()
+{
+    //route
+    $route = 'submit-all-successful-orders';
+    // get all successful orders
+    $args = array(
+        'post_type' => 'shop_order',
+        'post_status' => 'wc-processing',
+        'posts_per_page' => -1,
+    );
+    $orders = get_posts($args);
+    foreach ($orders as $order) {
+        $order_id = $order->ID;
+        $order_data = wc_get_order($order_id);
+        $order_items = $order_data->get_items();
+        foreach ($order_items as $item) {
+            $product_id = $item->get_product_id();
+            $product_data = wc_get_product($product_id);
+            $product_sku = $product_data->get_sku();
+            $product_name = $product_data->get_name();
+            $product_price = $product_data->get_price();
+            $product_quantity = $item->get_quantity();
+            $product_total = $product_price * $product_quantity;
+            $product_total = number_format($product_total, 2, '.', '');
+            $product_data = array(
+                'product_id' => $product_id,
+                'product_sku' => $product_sku,
+                'product_name' => $product_name,
+                'product_price' => $product_price,
+                'product_quantity' => $product_quantity,
+                'product_total' => $product_total,
+            );
+            $product_data = json_encode($product_data);
+           
+            $body = array(
+                'public_key' => get_option('kitcart_public_key'),
+                'secret_key' => get_option('kitcart_secret_key'),
+                'order_id' => $order_id,
+                'product_data' => $product_data,
+            );
+            $req_args = array(
+                'body'        => $body,
+                'timeout'     => '60',
+                'redirection' => '5',
+                'httpversion' => '1.0',
+                'blocking'    => true,
+                'headers'     => array(
+                    'accept' => "application/json",
+                ),
+                'cookies'  => array(
+                    'XSRF-TOKEN' => 'woocommerce-api-request',
+                    'kitcart_session' => 'woocommerce'
+                ),
+            );
+            $response = wp_remote_post(KITCART_API_URI . $route, $req_args);
+            $body = wp_remote_retrieve_body($response);
+            $body = json_decode($body);
+            if ($body->status == 'success') {
+                $order_data->update_status('completed');
+            }
+        }
     }
 }
 
@@ -148,10 +212,14 @@ function kitcart_plugin_action($action)
 function activate_kitcart()
 {
     //value to be change on first update
-    if(get_option('kitcart_secret_key') && get_option('kitcart_public_key')){
+    if (get_option('kitcart_secret_key') && get_option('kitcart_public_key')) {
         kitcart_plugin_action('activate');
+        submit_all_successful_orders();
     }
-    add_option('kitcart_redirect_to_settings', 'yes');
+    else {
+
+        add_option('kitcart_redirect_to_settings', 'yes');
+    }
 }
 
 //redirect after activation to settings page
@@ -219,6 +287,8 @@ function display_kitcart_api_form()
             update_option('kitcart_redirect_to_settings', 'no');
             add_option('kitcart_public_key', sanitize_text_field($_POST['kitcart_public_key']));
             add_option('kitcart_secret_key', sanitize_text_field($_POST['kitcart_secret_key']));
+            //make kitcart api call to create record of all successful orders
+            submit_all_successful_orders();
             // make kitcart aware of the activation
             if (kitcart_plugin_action('activate')) {
                 $message = '<div class="notice notice-success is-dismissible"><p>' . __('Your keys have been updated successfully', 'woocommerce') . '</p></div>';
