@@ -136,10 +136,10 @@ function kitcart_plugin_action($action)
 
     $response = wp_remote_post(KITCART_API_URI . $route, $req_args);
     $body = wp_remote_retrieve_body($response);
-    $body = json_decode($body, true);
-    if ($body['status'] == 'success') {
+    $body = json_decode($body);
+    if ($body->status == 'success') {
         return true;
-    } else {
+    } else { 
         return false;
     }
 }
@@ -148,6 +148,9 @@ function kitcart_plugin_action($action)
 function activate_kitcart()
 {
     //value to be change on first update
+    if(get_option('kitcart_secret_key') && get_option('kitcart_public_key')){
+        kitcart_plugin_action('activate');
+    }
     add_option('kitcart_redirect_to_settings', 'yes');
 }
 
