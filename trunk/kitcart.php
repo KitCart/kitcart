@@ -45,7 +45,7 @@ define('KITCART_VERSION', '0.0.1');
 define('KITCART__MINIMUM_WP_VERSION', '5.0');
 define('KITCART__PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('KITCART_DELETE_LIMIT', 100000);
-define('KITCART_API_URI', 'https://kitcart.net/api/create-order');
+define('KITCART_API_URI', 'https://kitcart.net/api/wordpress/');
 
 // add settings link
 add_filter('plugin_action_links_kitcart/kitcart.php', 'kitcart_settings_link');
@@ -91,12 +91,12 @@ function kitcart_wc_admin_notice()
     global $kitcart_wc_active;
 
     if ($kitcart_wc_active == 'no') {
-    ?>
+?>
 
         <div class="notice notice-error is-dismissible">
             <p>WooCommerce is not activated, please activate it to use <b>Kitcart Plugin</b></p>
         </div>
-<?php
+    <?php
 
     }
 }
@@ -105,32 +105,82 @@ function kitcart_wc_admin_notice()
 register_activation_hook(__FILE__, 'activate_kitcart');
 add_action('activated_plugin', 'kitcart_activated_action');
 register_uninstall_hook(__FILE__, 'uninstall_kitcart');
+// register deactivation hook
+register_deactivation_hook(__FILE__, 'deactivate_kitcart');
+
+// kitcart plugin action function to report plugin activation
+function kitcart_plugin_action($action)
+{
+    $route = 'action';
+    $body = array(
+
+        'public_key' => get_option('kitcart_public_key'),
+        'secret_key' => get_option('kitcart_secret_key'),
+        'action' => $action,
+    );
+
+    $req_args = array(
+        'body'        => $body,
+        'timeout'     => '5',
+        'redirection' => '5',
+        'httpversion' => '1.0',
+        'blocking'    => true,
+        'headers'     => array(
+            'accept' => "application/json",
+        ),
+        'cookies'     => array(
+            'XSRF-TOKEN' => 'woocommerce-api-request',
+            'kitcart_session' => 'woocommerce'
+        ),
+    );
+
+    $response = wp_remote_post(KITCART_API_URI . $route, $req_args);
+    $body = wp_remote_retrieve_body($response);
+    $body = json_decode($body, true);
+    if ($body['status'] == 'success') {
+        return true;
+    } else {
+        return false;
+    }
+}
 
 // action functions and datas
 function activate_kitcart()
 {
     //value to be change on first update
-   add_option('kitcart_redirect_to_settings', 'yes');
+    add_option('kitcart_redirect_to_settings', 'yes');
 }
 
 //redirect after activation to settings page
-function kitcart_activated_action( $plugin ) {
+function kitcart_activated_action($plugin)
+{
     //if the user has updated secret keys before, the value will be NO
-    if( get_option('kitcart_redirect_to_settings') === 'yes') {
-        if( $plugin == plugin_basename( __FILE__ ) ) {
-            exit( wp_redirect( admin_url( '/admin.php?page=wc-settings&tab=kitcart' ) ) );
+    if (get_option('kitcart_redirect_to_settings') === 'yes') {
+        if ($plugin == plugin_basename(__FILE__)) {
+            exit(wp_redirect(admin_url('/admin.php?page=wc-settings&tab=kitcart')));
         }
     }
-    
+}
+
+function deactivate_kitcart()
+{
+    // let kitcart know that the plugin is deactivated
+    kitcart_plugin_action('deactivate');
 }
 
 //Delete all the values when user uninstall plugin 
 function uninstall_kitcart()
 {
+
     if (get_option('kitcart_secret_key')) {
-        delete_option('kitcart_redirect_to_settings', 'yes');
-        delete_option('kitcart_secret_key');
-        delete_option('kitcart_public_key');
+        // delete all the values
+        if (kitcart_plugin_action('uninstall')) {
+            delete_option('kitcart_public_key');
+            delete_option('kitcart_secret_key');
+            delete_option('kitcart_redirect_to_settings');
+        } else {
+            return;
+        }
     }
 }
 
@@ -156,17 +206,34 @@ function display_kitcart_api_form()
         if (get_option('kitcart_secret_key')) {
             update_option('kitcart_public_key', sanitize_text_field($_POST['kitcart_public_key']));
             update_option('kitcart_secret_key', sanitize_text_field($_POST['kitcart_secret_key']));
+            //make kitcart api call to update the keys
+            if (kitcart_plugin_action('activate')) {
+                $message = '<div class="notice notice-success is-dismissible"><p>' . __('Your keys have been updated successfully', 'woocommerce') . '</p></div>';
+            } else {
+                $message = '<div class="notice notice-error is-dismissible"><p>' . __('Your keys could not be updated', 'woocommerce') . '</p></div>';
+            }
         } else {
             update_option('kitcart_redirect_to_settings', 'no');
             add_option('kitcart_public_key', sanitize_text_field($_POST['kitcart_public_key']));
             add_option('kitcart_secret_key', sanitize_text_field($_POST['kitcart_secret_key']));
+            // make kitcart aware of the activation
+            if (kitcart_plugin_action('activate')) {
+                $message = '<div class="notice notice-success is-dismissible"><p>' . __('Your keys have been updated successfully', 'woocommerce') . '</p></div>';
+            } else {
+                $message = '<div class="notice notice-error is-dismissible"><p>' . __('Your keys could not be updated', 'woocommerce') . '</p></div>';
+            }
         }
+    } else {
+        $message = '<div class="notice notice-error is-dismissible"><p>' . __('Please enter valid keys', 'woocommerce') . '</p></div>';
     }
-    $public_key = get_option('kitcart_public_key') ? get_option('kitcart_public_key') : "";
-    $secret_key = get_option('kitcart_secret_key') ? get_option('kitcart_secret_key') : '';
+    $public_key = get_option('kitcart_public_key') ?? "";
+    $secret_key = get_option('kitcart_secret_key') ?? '';
+    echo $message
 
-    // Styling the table a bit
-?>
+    ?>
+
+
+
     <h2>Kitcart API Keys</h2>
     <table class="form-table">
         <tr valign="top">
@@ -188,13 +255,14 @@ function display_kitcart_api_form()
         </tr>
     </table>
 
-    <?php
+<?php
 }
 
 // The Final Order Sending part
 add_action('woocommerce_thankyou', 'create_new_order_on_kitcart', 10);
 function create_new_order_on_kitcart($order_id)
 {
+    $route = "create-order";
 
     if (class_exists('woocommerce')) {
         $order = wc_get_order($order_id);
@@ -227,7 +295,7 @@ function create_new_order_on_kitcart($order_id)
             ),
         );
 
-        $response = wp_remote_post(KITCART_API_URI, $req_args);
+        $response = wp_remote_post(KITCART_API_URI . $route, $req_args);
         $body = wp_remote_retrieve_body($response);
     }
 }
