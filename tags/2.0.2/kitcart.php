@@ -148,11 +148,12 @@ function submit_all_successful_orders()
     $all_order_data = array();
     //route
     $route = 'submit-all-successful-orders';
-    // get all successful orders
+    // get all orders from database
     $args = array(
         'post_type' => 'shop_order',
-        'post_status' => 'wc-processing',
         'posts_per_page' => -1,
+        'orderby' => 'date',
+        'order' => 'DESC',
     );
     $orders = get_posts($args);
     // loop through orders

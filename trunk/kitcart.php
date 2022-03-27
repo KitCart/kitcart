@@ -6,7 +6,7 @@
 Plugin Name: Kitcart
 Plugin URI: https://kitcart.net/
 Description: Kitcart is a cloud-based ecommerce platform for online stores and retail point-of-sale systems that helps modern businesses sell anything to anyone anywhere.
-Version: 2.0.1
+Version: 2.0.2
 Author: Kitcart
 Contributors: Elon Jobs, Bill Tracy, John Wills, Josh Tracy, Dan Smith, Joseph Victor
 Author URI: https://kitcart.net/plugins/
