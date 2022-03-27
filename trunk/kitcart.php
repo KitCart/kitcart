@@ -30,7 +30,7 @@ You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
-Copyright 2020-2021 Kitcart Technology, Inc.
+Copyright 2020-2022 Kitcart Technology, Inc.
  */
 
 // Make sure we don't expose any info if called directly
@@ -121,7 +121,7 @@ function kitcart_plugin_action($action)
 
     $req_args = array(
         'body'        => $body,
-        'timeout'     => '5',
+        'timeout'     => '60',
         'redirection' => '5',
         'httpversion' => '1.0',
         'blocking'    => true,
@@ -133,19 +133,24 @@ function kitcart_plugin_action($action)
             'kitcart_session' => 'woocommerce'
         ),
     );
-
-    $response = wp_remote_post(KITCART_API_URI . $route, $req_args);
-    $body = wp_remote_retrieve_body($response);
-    $body = json_decode($body);
-    if ($body->status == 'success') {
-        return true;
-    } else {
+    try {
+        $response = wp_remote_post(KITCART_API_URI . $route, $req_args);
+        $body = wp_remote_retrieve_body($response);
+        $body = json_decode($body);
+        if ($body->status == 'success') {
+            return true;
+        } else {
+            return false;
+        }
+    } catch (\Throwable $th) {
         return false;
     }
 }
 
 function submit_all_successful_orders()
 {
+    // empty array to store all successful orders
+    $all_order_data = array();
     //route
     $route = 'submit-all-successful-orders';
     // get all successful orders
@@ -155,57 +160,44 @@ function submit_all_successful_orders()
         'posts_per_page' => -1,
     );
     $orders = get_posts($args);
+    // loop through orders
     foreach ($orders as $order) {
         $order_id = $order->ID;
-        $order_data = wc_get_order($order_id);
-        $order_items = $order_data->get_items();
-        foreach ($order_items as $item) {
-            $product_id = $item->get_product_id();
-            $product_data = wc_get_product($product_id);
-            $product_sku = $product_data->get_sku();
-            $product_name = $product_data->get_name();
-            $product_price = $product_data->get_price();
-            $product_quantity = $item->get_quantity();
-            $product_total = $product_price * $product_quantity;
-            $product_total = number_format($product_total, 2, '.', '');
-            $product_data = array(
-                'product_id' => $product_id,
-                'product_sku' => $product_sku,
-                'product_name' => $product_name,
-                'product_price' => $product_price,
-                'product_quantity' => $product_quantity,
-                'product_total' => $product_total,
-            );
-            $product_data = json_encode($product_data);
-           
-            $body = array(
-                'public_key' => get_option('kitcart_public_key'),
-                'secret_key' => get_option('kitcart_secret_key'),
-                'order_id' => $order_id,
-                'product_data' => $product_data,
-            );
-            $req_args = array(
-                'body'        => $body,
-                'timeout'     => '60',
-                'redirection' => '5',
-                'httpversion' => '1.0',
-                'blocking'    => true,
-                'headers'     => array(
-                    'accept' => "application/json",
-                ),
-                'cookies'  => array(
-                    'XSRF-TOKEN' => 'woocommerce-api-request',
-                    'kitcart_session' => 'woocommerce'
-                ),
-            );
-            $response = wp_remote_post(KITCART_API_URI . $route, $req_args);
-            $body = wp_remote_retrieve_body($response);
-            $body = json_decode($body);
-            if ($body->status == 'success') {
-                $order_data->update_status('completed');
-            }
+        $order = wc_get_order($order_id);
+        $items = $order->get_items();
+        $items_data = [];
+        foreach ($items as $item_key => $item) {
+            $items_data[] = $item->get_data();
         }
+
+        $order_data = array(
+            'order_id' => $order_id,
+            'product_data' => $items_data,
+            'order_data' => $order->get_data(),
+        );
+        $all_order_data[] = $order_data;
     }
+
+    $body = array(
+        'public_key' => get_option('kitcart_public_key'),
+        'secret_key' => get_option('kitcart_secret_key'),
+        'orders' => $all_order_data,
+    );
+    $req_args = array(
+        'body'        => $body,
+        'timeout'     => '300',
+        'redirection' => '5',
+        'httpversion' => '1.0',
+        'blocking'    => true,
+        'headers'     => array(
+            'accept' => "application/json",
+        ),
+        'cookies'  => array(
+            'XSRF-TOKEN' => 'woocommerce-api-request',
+            'kitcart_session' => 'woocommerce'
+        ),
+    );
+    $response = wp_remote_post(KITCART_API_URI . $route, $req_args);
 }
 
 // action functions and datas
@@ -215,8 +207,7 @@ function activate_kitcart()
     if (get_option('kitcart_secret_key') && get_option('kitcart_public_key')) {
         kitcart_plugin_action('activate');
         submit_all_successful_orders();
-    }
-    else {
+    } else {
 
         add_option('kitcart_redirect_to_settings', 'yes');
     }
@@ -332,7 +323,18 @@ function display_kitcart_api_form()
 }
 
 // The Final Order Sending part
-add_action('woocommerce_thankyou', 'create_new_order_on_kitcart', 10);
+add_action('woocommerce_payment_complete', 'create_new_order_on_kitcart', 10);
+add_action('woocommerce_order_status_completed', 'create_new_order_on_kitcart', 10);
+add_action('woocommerce_order_status_processing', 'create_new_order_on_kitcart', 10);
+add_action('woocommerce_order_status_on-hold', 'create_new_order_on_kitcart', 10);
+add_action('woocommerce_order_status_pending', 'create_new_order_on_kitcart', 10);
+add_action('woocommerce_order_status_failed', 'create_new_order_on_kitcart', 10);
+add_action('woocommerce_order_status_cancelled', 'create_new_order_on_kitcart', 10);
+add_action('woocommerce_order_status_refunded', 'create_new_order_on_kitcart', 10);
+add_action('woocommerce_order_status_processing_to_completed', 'create_new_order_on_kitcart', 10);
+add_action('woocommerce_order_status_completed_to_processing', 'create_new_order_on_kitcart', 10);
+add_action('woocommerce_order_status_completed_to_on-hold', 'create_new_order_on_kitcart', 10);
+add_action('woocommerce_order_status_completed_to_pending', 'create_new_order_on_kitcart', 10);
 function create_new_order_on_kitcart($order_id)
 {
     $route = "create-order";
@@ -369,6 +371,5 @@ function create_new_order_on_kitcart($order_id)
         );
 
         $response = wp_remote_post(KITCART_API_URI . $route, $req_args);
-        $body = wp_remote_retrieve_body($response);
     }
 }
