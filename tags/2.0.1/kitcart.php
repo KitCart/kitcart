@@ -1,5 +1,4 @@
 <?php
-
 /**
  * @package Kitcart
  */
@@ -7,9 +6,9 @@
 Plugin Name: Kitcart
 Plugin URI: https://kitcart.net/
 Description: Kitcart is a cloud-based ecommerce platform for online stores and retail point-of-sale systems that helps modern businesses sell anything to anyone anywhere.
-Version: 1.0.0
+Version: 2.0.1
 Author: Kitcart
-Contributors: Elon Jobs, Bill Tracy, John Wills, Josh Tracy, Dan Smith
+Contributors: Elon Jobs, Bill Tracy, John Wills, Josh Tracy, Dan Smith, Joseph Victor
 Author URI: https://kitcart.net/plugins/
 License: GPLv3
 Text Domain: kitcart
@@ -38,8 +37,6 @@ if (!function_exists('add_action')) {
     $items[] = 'Hi there!  I\'m just a plugin, not much I can do when called directly.';
     exit;
 }
-
-
 
 define('KITCART_VERSION', '0.0.1');
 define('KITCART__MINIMUM_WP_VERSION', '5.0');
@@ -73,7 +70,6 @@ function kitcart_wc_check()
 {
 
     if (class_exists('woocommerce')) {
-
         global $kitcart_wc_active;
         $kitcart_wc_active = 'yes';
     } else {
@@ -105,7 +101,6 @@ function kitcart_wc_admin_notice()
 register_activation_hook(__FILE__, 'activate_kitcart');
 add_action('activated_plugin', 'kitcart_activated_action');
 register_uninstall_hook(__FILE__, 'uninstall_kitcart');
-// register deactivation hook
 register_deactivation_hook(__FILE__, 'deactivate_kitcart');
 
 // kitcart plugin action function to report plugin activation
@@ -164,6 +159,7 @@ function submit_all_successful_orders()
     foreach ($orders as $order) {
         $order_id = $order->ID;
         $order = wc_get_order($order_id);
+        //get order created date
         $items = $order->get_items();
         $items_data = [];
         foreach ($items as $item_key => $item) {
@@ -174,6 +170,8 @@ function submit_all_successful_orders()
             'order_id' => $order_id,
             'product_data' => $items_data,
             'order_data' => $order->get_data(),
+            'created_at' => $order->get_date_created()->date('Y-m-d H:i:s'),
+            'updated_at' => $order->get_date_modified()->date('Y-m-d H:i:s'),
         );
         $all_order_data[] = $order_data;
     }
@@ -182,6 +180,8 @@ function submit_all_successful_orders()
         'public_key' => get_option('kitcart_public_key'),
         'secret_key' => get_option('kitcart_secret_key'),
         'orders' => $all_order_data,
+        'action' => 'submit-all-successful-orders',
+        'status' => 'success',
     );
     $req_args = array(
         'body'        => $body,
@@ -205,10 +205,8 @@ function activate_kitcart()
 {
     //value to be change on first update
     if (get_option('kitcart_secret_key') && get_option('kitcart_public_key')) {
-        kitcart_plugin_action('activate');
         submit_all_successful_orders();
     } else {
-
         add_option('kitcart_redirect_to_settings', 'yes');
     }
 }
@@ -217,9 +215,11 @@ function activate_kitcart()
 function kitcart_activated_action($plugin)
 {
     //if the user has updated secret keys before, the value will be NO
-    if (get_option('kitcart_redirect_to_settings') === 'yes') {
-        if ($plugin == plugin_basename(__FILE__)) {
-            exit(wp_redirect(admin_url('/admin.php?page=wc-settings&tab=kitcart')));
+    if (class_exists('woocommerce')) {
+        if (get_option('kitcart_redirect_to_settings') === 'yes') {
+            if ($plugin == plugin_basename(__FILE__)) {
+                exit(wp_redirect(admin_url('/admin.php?page=wc-settings&tab=kitcart')));
+            }
         }
     }
 }
@@ -233,7 +233,6 @@ function deactivate_kitcart()
 //Delete all the values when user uninstall plugin 
 function uninstall_kitcart()
 {
-
     if (get_option('kitcart_secret_key')) {
         // delete all the values
         if (kitcart_plugin_action('uninstall')) {
@@ -282,9 +281,9 @@ function display_kitcart_api_form()
             submit_all_successful_orders();
             // make kitcart aware of the activation
             if (kitcart_plugin_action('activate')) {
-                $message = '<div class="notice notice-success is-dismissible"><p>' . __('Your keys have been updated successfully', 'woocommerce') . '</p></div>';
+                $message = '<div class="notice notice-success is-dismissible"><p>' . __('Your API keys have been updated successfully', 'woocommerce') . '</p></div>';
             } else {
-                $message = '<div class="notice notice-error is-dismissible"><p>' . __('Your keys could not be updated', 'woocommerce') . '</p></div>';
+                $message = '<div class="notice notice-error is-dismissible"><p>' . __('Your API keys could not be updated.', 'woocommerce') . '</p></div>';
             }
         }
     } else {
@@ -295,9 +294,6 @@ function display_kitcart_api_form()
     echo $message
 
     ?>
-
-
-
     <h2>Kitcart API Keys</h2>
     <table class="form-table">
         <tr valign="top">
@@ -318,7 +314,6 @@ function display_kitcart_api_form()
             </td>
         </tr>
     </table>
-
 <?php
 }
 
@@ -353,6 +348,10 @@ function create_new_order_on_kitcart($order_id)
             'secret_key' => get_option('kitcart_secret_key'),
             'order_data' => $order->get_data(),
             'product_data' => $items_data,
+            'order_id' => $order_id,
+            'created_at' => $order->get_date_created()->date('Y-m-d H:i:s'),
+            'updated_at' => $order->get_date_modified()->date('Y-m-d H:i:s'),
+
         );
 
         $req_args = array(
